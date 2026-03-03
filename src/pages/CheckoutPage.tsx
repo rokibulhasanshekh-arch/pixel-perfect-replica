@@ -119,67 +119,94 @@ export default function CheckoutPage() {
   };
 
   const placeOrder = async () => {
+    if (!user) {
+      navigate('/auth');
+      return;
+    }
     setLoading(true);
     try {
       // Add loyalty points for the purchase (1 point per 10 taka)
       const earnedPoints = Math.floor(finalTotal / 10);
 
       const orderData = {
-        userId: user?.uid || 'guest',
-        userEmail: user?.email || '',
+        userId: user.uid,
+        userEmail: user.email || '',
         userName: shipping.name,
         items: stateItems.map((item: any) => ({
-          productId: item.productId,
-          name: item.name,
-          price: item.price,
-          originalPrice: item.originalPrice,
-          image: item.image,
-          quantity: item.quantity || 1,
-          selectedSize: item.selectedSize,
-          selectedColor: item.selectedColor,
+          productId: item.productId || '',
+          name: item.name || '',
+          price: Number(item.price) || 0,
+          originalPrice: Number(item.originalPrice) || 0,
+          image: item.image || '',
+          quantity: Number(item.quantity) || 1,
+          selectedSize: item.selectedSize || '',
+          selectedColor: item.selectedColor || '',
         })),
-        shipping,
-        delivery: deliveryOpt,
-        payment: {
-          method: paymentMethod,
-          ...(paymentMethod === 'mobile' ? mobilePayment : {}),
+        shipping: {
+          name: shipping.name || '',
+          phone: shipping.phone || '',
+          address: shipping.address || '',
         },
-        subtotal,
-        discount: appliedCoupon ? (appliedCoupon.discountPercent || 0) : stateDiscount,
-        discountAmount,
-        couponCode: effectiveCouponCode || null,
-        deliveryCharge,
-        total: finalTotal,
-        earnedPoints,
+        delivery: {
+          id: deliveryOpt.id || 'standard',
+          label: deliveryOpt.label || '',
+          time: deliveryOpt.time || '',
+          price: Number(deliveryOpt.price) || 0,
+        },
+        payment: {
+          method: paymentMethod || 'cod',
+          ...(paymentMethod === 'mobile' ? {
+            method2: mobilePayment.method || '',
+            number: mobilePayment.number || '',
+            transactionId: mobilePayment.transactionId || '',
+            screenshot: mobilePayment.screenshot || '',
+          } : {}),
+        },
+        subtotal: Number(subtotal) || 0,
+        discount: appliedCoupon ? (Number(appliedCoupon.discountPercent) || 0) : (Number(stateDiscount) || 0),
+        discountAmount: Number(discountAmount) || 0,
+        couponCode: effectiveCouponCode || '',
+        deliveryCharge: Number(deliveryCharge) || 0,
+        total: Number(finalTotal) || 0,
+        earnedPoints: Number(earnedPoints) || 0,
         status: 'processing',
         statusHistory: [{ status: 'processing', timestamp: new Date().toISOString() }],
         createdAt: serverTimestamp(),
       };
 
+      console.log('Placing order...', orderData);
       const docRef = await addDoc(collection(db, 'orders'), orderData);
+      console.log('Order placed successfully:', docRef.id);
 
       // Award loyalty points
-      if (user && earnedPoints > 0) {
-        const userRef = doc(db, 'users', user.uid);
-        const userSnap = await getDoc(userRef);
-        const currentPoints = userSnap.data()?.loyaltyPoints || 0;
-        await updateDoc(userRef, { loyaltyPoints: currentPoints + earnedPoints });
+      if (earnedPoints > 0) {
+        try {
+          const userRef = doc(db, 'users', user.uid);
+          const userSnap = await getDoc(userRef);
+          const currentPoints = userSnap.data()?.loyaltyPoints || 0;
+          await updateDoc(userRef, { loyaltyPoints: currentPoints + earnedPoints });
+        } catch (pointsErr) {
+          console.warn('Could not award loyalty points:', pointsErr);
+        }
       }
 
       // Delete coupon after use (remove from Firebase completely - one-time use)
       const couponToDelete = appliedCoupon || stateCouponData;
       if (couponToDelete?.id) {
-        const { deleteCoupon } = await import('@/hooks/useFirestoreData');
-        await deleteCoupon(couponToDelete.id);
+        try {
+          const { deleteCoupon } = await import('@/hooks/useFirestoreData');
+          await deleteCoupon(couponToDelete.id);
+        } catch (couponErr) {
+          console.warn('Could not delete coupon:', couponErr);
+        }
       }
 
       await clearCart();
       if (user) refreshUserData();
       navigate('/order-success', { state: { orderId: docRef.id, earnedPoints } });
-    } catch (err) {
+    } catch (err: any) {
       console.error('Order error:', err);
-      // Still navigate on error to avoid duplicate orders
-      navigate('/order-success', { state: { orderId: 'ORD-' + Date.now() } });
+      alert('অর্ডার সেভ করতে সমস্যা হয়েছে: ' + (err?.message || 'Unknown error'));
     } finally {
       setLoading(false);
     }
