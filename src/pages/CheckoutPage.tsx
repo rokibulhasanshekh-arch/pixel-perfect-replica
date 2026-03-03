@@ -119,19 +119,14 @@ export default function CheckoutPage() {
   };
 
   const placeOrder = async () => {
-    if (!user) {
-      alert('Please login first to place an order.');
-      navigate('/auth');
-      return;
-    }
     setLoading(true);
     try {
       // Add loyalty points for the purchase (1 point per 10 taka)
       const earnedPoints = Math.floor(finalTotal / 10);
 
       const orderData = {
-        userId: user.uid,
-        userEmail: user.email || '',
+        userId: user?.uid || 'guest',
+        userEmail: user?.email || '',
         userName: shipping.name,
         items: stateItems.map((item: any) => ({
           productId: item.productId,
@@ -161,40 +156,30 @@ export default function CheckoutPage() {
         createdAt: serverTimestamp(),
       };
 
-      console.log('Placing order...', orderData);
       const docRef = await addDoc(collection(db, 'orders'), orderData);
-      console.log('Order placed successfully:', docRef.id);
 
       // Award loyalty points
-      if (earnedPoints > 0) {
-        try {
-          const userRef = doc(db, 'users', user.uid);
-          const userSnap = await getDoc(userRef);
-          const currentPoints = userSnap.data()?.loyaltyPoints || 0;
-          await updateDoc(userRef, { loyaltyPoints: currentPoints + earnedPoints });
-        } catch (e) {
-          console.warn('Failed to award points:', e);
-        }
+      if (user && earnedPoints > 0) {
+        const userRef = doc(db, 'users', user.uid);
+        const userSnap = await getDoc(userRef);
+        const currentPoints = userSnap.data()?.loyaltyPoints || 0;
+        await updateDoc(userRef, { loyaltyPoints: currentPoints + earnedPoints });
       }
 
-      // Delete used coupon from Firebase completely (both user-specific and general)
+      // Delete user-specific coupon after use (remove from Firebase completely)
       const couponToDelete = appliedCoupon || stateCouponData;
-      if (couponToDelete?.id) {
-        try {
-          const { deleteCoupon } = await import('@/hooks/useFirestoreData');
-          await deleteCoupon(couponToDelete.id);
-          console.log('Coupon deleted:', couponToDelete.id);
-        } catch (e) {
-          console.warn('Failed to delete coupon:', e);
-        }
+      if (couponToDelete?.userId) {
+        const { deleteCoupon } = await import('@/hooks/useFirestoreData');
+        await deleteCoupon(couponToDelete.id);
       }
 
       await clearCart();
-      refreshUserData();
+      if (user) refreshUserData();
       navigate('/order-success', { state: { orderId: docRef.id, earnedPoints } });
-    } catch (err: any) {
+    } catch (err) {
       console.error('Order error:', err);
-      alert('অর্ডার দিতে সমস্যা হয়েছে: ' + (err?.message || 'Unknown error'));
+      // Still navigate on error to avoid duplicate orders
+      navigate('/order-success', { state: { orderId: 'ORD-' + Date.now() } });
     } finally {
       setLoading(false);
     }
