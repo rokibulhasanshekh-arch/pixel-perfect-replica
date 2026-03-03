@@ -166,9 +166,9 @@ export default function CheckoutPage() {
         await updateDoc(userRef, { loyaltyPoints: currentPoints + earnedPoints });
       }
 
-      // Delete user-specific coupon after use (remove from Firebase completely)
+      // Delete coupon after use (remove from Firebase completely - one-time use)
       const couponToDelete = appliedCoupon || stateCouponData;
-      if (couponToDelete?.userId) {
+      if (couponToDelete?.id) {
         const { deleteCoupon } = await import('@/hooks/useFirestoreData');
         await deleteCoupon(couponToDelete.id);
       }
